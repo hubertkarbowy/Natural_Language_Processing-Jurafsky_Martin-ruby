@@ -1,9 +1,12 @@
 # Jurafsky and Martin - ex. 4.6
 
 # Author: Hubert Karbowy (hk atsign hubertkarbowy.pl)
+# Tested with Ruby 2.2.1 - will not work with 1.9.3
 
 # This program calculates the Good-Turing smoothed probabilities for N-grams.
-# Tested with Ruby 2.2.1 - will not work with 1.9.3
+# Note: MLE probabilities should be fine with small corpora for raw counts larger than 4 or 5.
+# This snippet has no upper bound on when the model should switch from GT to MLE, but see line 30 and nlp_jm_ex4p2-p5.rb for modifications
+
 require 'pp'
 
 #corpus = "starttoken en sag sag en sag en sag sag comma en annan sagade sagen sagen sag dot enddtoken" # taken from https://sites.google.com/site/gothnlp/exercises/jurafsky-martin/solutions
@@ -29,7 +32,7 @@ for i in 1..2 # bins for unigrams and bigrams only
 end
 
 pp good_turing_bins
-ngram_model=1 # for bigram probabilities try ngram_model=2 and next_word=whitefish trout
+ngram_model=1
 next_word = "whitefish"
 next_word_count = ngram_counts[ngram_model].fetch(next_word, 0)
 next_word_revised_count = next_word_count==0 ? 0 : ((next_word_count+1)*(good_turing_bins[ngram_model][next_word_count+1].to_f))/(good_turing_bins[ngram_model][next_word_count])
