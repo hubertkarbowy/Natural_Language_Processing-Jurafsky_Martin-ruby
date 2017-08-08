@@ -128,9 +128,9 @@ for i in 1..$ngram_model # unigrams, bigrams etc.
   ngram_counts[i] = corpus.split(" ").each_cons(i).to_a.reduce(Hash.new(0)) {|acc, word| acc[word] += 1; acc }.map{|k,v| [k.join(" "), v]}.to_h
   puts "For #{i}-grams number of types (unique tokens) = #{ngram_counts[i].size}"
 end
-
+  
 # serialized_array = Marshal.dump(ngram_counts)
-# File.open('/wymiana/Projekty/NLP/ngram_counts.txt', 'w') {|f| f.write(serialized_array) } # Save the counts in a file if a corpus is big to avoid computing counts each time 
+# File.open('/wymiana/Projekty/NLP/ngram_counts.txt', 'w') {|f| f.write(serialized_array) } # Save the counts in a file if a corpus is big to avoid computing counts each time
 
 # good_turing_bins = Marshal.load File.read('/wymiana/Projekty/NLP/good_turing_bins.txt')   # Alternatively read the precomputed bins from a file
 good_turing_bins = []
