@@ -5,6 +5,7 @@
 ## Version: 0.9
 ##
 ## Todo: Implement Katz back-off
+##       Named parameters
 ##
 ## See my blog on http://www.hubertkarbowy.pl
 ##
@@ -53,7 +54,7 @@ class Ngrams
   end
   
   ## Calculates back-off counts with Good-Turing discount
-  def calculate_revised_counts next_ngram, local_ngram_model, ngram_counts=@ngram_counts, good_turing_bins=@good_turing_bins
+  def get_revised_counts next_ngram, local_ngram_model, ngram_counts=@ngram_counts, good_turing_bins=@good_turing_bins
     next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
     if next_ngram_rawcount == 0
       raise "Revised counts for zero raw counts don't make sense"
