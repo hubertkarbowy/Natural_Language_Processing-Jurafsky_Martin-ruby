@@ -14,7 +14,7 @@ class Ngrams
   @ngram_counts
   @good_turing_bins
   
-  def initialize(corpus, max_ngram_model=3, k=5, force_normalize=true, verbose=true)
+  def initialize(corpus, max_ngram_model: 3, k: 5, force_normalize: true, verbose: true)
     start_time=Time.now
     # corpus_file = File.read(corpus).encode('UTF-8', 'UTF-8', invalid: :replace, undef: :replace, replace: '')
     corpus_file = File.read(corpus).encode('UTF-8', 'UTF-8', invalid: :replace, replace: '')
@@ -88,8 +88,8 @@ class Ngrams
   end
   
   ## Calculates raw counts (infers n-gram size)
-  def get_raw_counts phrase, ngram_model=0
-    ngram_model_inferred = ngram_model==0 ? phrase.split(" ").count : ngram_model
+  def get_raw_counts phrase, ngram_model=0, separator=" "
+    ngram_model_inferred = ngram_model==0 ? phrase.split(separator).count : ngram_model
     return @ngram_counts[ngram_model_inferred][phrase]
   end
 
