@@ -49,12 +49,14 @@ class Ngrams
     end
 
     @good_turing_bins=gt_bins
+    @k=k
     stop_time=Time.now
     puts "RNGTK ready. Model loaded model in #{stop_time-start_time} s." unless !verbose
   end
   
-  ## Calculates back-off counts with Good-Turing discount
-  def get_revised_counts next_ngram, local_ngram_model, ngram_counts=@ngram_counts, good_turing_bins=@good_turing_bins
+  ## Calculates back-off counts with Good-Turing discount. Todo: infer model
+  def get_revised_counts next_ngram:, ngram_model: 0, ngram_counts: @ngram_counts, good_turing_bins: @good_turing_bins, separator: " "
+    local_ngram_model = ngram_model==0 ? next_ngram.split(separator).count : ngram_model
     next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
     if next_ngram_rawcount == 0
       raise "Revised counts for zero raw counts don't make sense"
@@ -65,9 +67,11 @@ class Ngrams
     end
   end
   
-  ## Calculates Good-Turing probabilities for n-grams
-  def calculate_revised_probabilities next_ngram, local_ngram_model, ngram_counts=@ngram_counts, good_turing_bins=@good_turing_bins
+  ## Calculates Good-Turing probabilities for n-grams # Todo: Guess ngram model
+  def calculate_gt_probability next_ngram:, ngram_model: 0, ngram_counts: @ngram_counts, good_turing_bins: @good_turing_bins, separator: " "
+    local_ngram_model = ngram_model==0 ? next_ngram.split(separator).count : ngram_model
     next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
+    
     if next_ngram_rawcount == 0
       return good_turing_bins[local_ngram_model][1].to_f/good_turing_bins[local_ngram_model][0]
     else
@@ -82,7 +86,7 @@ class Ngrams
     return rc.to_f/@good_turing_bins[ngram_model][0] # this is where we keep V
   end
   
-  ## This overloaded method guesses the ngram model by the number of spaces
+  ## This overloaded method guesses the ngram model by the number of spaces # Todo: separator
   def calculate_mle_probabilitity phrase
     ngram_model=phrase.split(" ").count
     return phrase.split(" ").each_cons(ngram_model).reduce(1) {|acc, word| (@ngram_counts[ngram_model][word.join(" ")].to_f/@good_turing_bins[ngram_model][0].to_f)*acc}
@@ -94,4 +98,6 @@ class Ngrams
     return @ngram_counts[ngram_model_inferred][phrase]
   end
 
+  def get_gt_bins; return @good_turing_bins; end;
+  
 end
