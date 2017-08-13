@@ -7,22 +7,17 @@ require 'pp'
 #puts "Raw counts for she = #{ngtk.get_raw_counts('she')}"
 #puts ngtk.calculate_mle_probabilitity("she")
 
-simplemodel = Ngrams.new("simplecorpus.txt", max_ngram_model: 4, k: 7)
-puts simplemodel.calculate_mle_probabilitity(phrase: "ugly")
+simplemodel = Ngrams.new(corpus: 'simplecorpus.txt', max_ngram_model: 4, k: 4)
 
-fine=simplemodel.calculate_gt_probability(next_ngram: "your house looks fine")
-nice=simplemodel.calculate_gt_probability(next_ngram: "your house looks nice")
-lovely=simplemodel.calculate_gt_probability(next_ngram: "your house looks lovely")
-good=simplemodel.calculate_gt_probability(next_ngram: "your house looks good")
+puts simplemodel.get_revised_counts(next_ngram: 'one two three four', ngram_model: 4)
 
-simpleh = {'fine' => fine, "nice" => nice, "lovely" => lovely, "good" => good}
-simpleh.each {|k,v| puts "P*(your house looks #{k}) = #{v}"}
-puts "P*(your house looks ugly) = #{simplemodel.calculate_gt_probability(next_ngram: 'your house looks ugly')}"
-puts "c*(your house looks fine) = #{simplemodel.get_revised_counts(next_ngram: 'your house looks fine')}"
-#puts "Sum = #{simpleh.values.sum}"
-
-
-
-#xx=simplemodel.get_gt_bins
-#puts xx
-#puts xx[4][1].to_f/xx[4][0]
+ngramcounts = simplemodel.get_ngram_counts
+for n in 1..4 do
+    puts "========== #{n}-grams ==========="
+    puts ngramcounts[n]
+    ngramcounts[n].each {|k,_| puts "c*(#{k}) = #{simplemodel.get_revised_counts(next_ngram: k)}"}
+    ngramcounts[n].each {|k,_| puts "P*(#{k}) = #{simplemodel.calculate_gt_probability(next_ngram: k)}"}
+    totalprob=ngramcounts[n].reduce(0){|acc, (k,v)| acc += simplemodel.calculate_gt_probability(next_ngram: k)}
+    prob_unk = simplemodel.calculate_gt_probability(next_ngram: "#{'unknown '*n}")
+    puts " Probability (seen):  #{totalprob}\n+Probability (unseen): #{prob_unk}\n=Total probability = #{totalprob+prob_unk}"
+end
