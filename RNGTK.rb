@@ -2,23 +2,32 @@
 ##
 ## RNGTK - Ruby Ngram Toolkit
 ## Author: Hubert Karbowy (hk atsign hubertkarbowy.pl)
-## Version: 0.91
-## Tested with Ruby 2.4.0 - might work with 2.3 and 2.2, won't work with lower versions
+## See my blog on http://www.hubertkarbowy.pl
+## Version: 0.93a
+## Requires Ruby 2.4.0 - might work with 2.3 and 2.2, won't work with lower versions
 ##
 ## CHANGELOG:
 ## 0.91 - fixed MLE probabilites
 ## 0.92 - fixed probabilities with Good-Turing discount
-##
-## Todo: Implement Katz back-off
-##       Named parameters
-##
-## See my blog on http://www.hubertkarbowy.pl
+## 0.93a - started implementing Katz backoff (incomplete)
 ##
 
 class Ngrams
   @k
   @ngram_counts
   @good_turing_bins
+
+  # inner class to color output in verbose mode
+  class String
+    def black;          "\e[30m#{self}\e[0m" end
+    def red;            "\e[31m#{self}\e[0m" end
+    def green;          "\e[32m#{self}\e[0m" end
+    def brown;          "\e[33m#{self}\e[0m" end
+    def blue;           "\e[34m#{self}\e[0m" end
+    def magenta;        "\e[35m#{self}\e[0m" end
+    def cyan;           "\e[36m#{self}\e[0m" end
+    def gray;           "\e[37m#{self}\e[0m" end
+  end
 
   # corpus - filename, max_ngram model - self-explanatory, k - for GT smoothing
   # strip_punctuation - removes non-alphabetical chars
@@ -94,25 +103,12 @@ class Ngrams
       return (next_ngram_rawcount)
     end
   end
-  
-  ## Calculates Good-Turing probabilities for n-grams
-  def calculate_gt_probability next_ngram: nil, ngram_model: 0, ngram_counts: @ngram_counts, good_turing_bins: @good_turing_bins, separator: " "
-    local_ngram_model = ngram_model==0 ? next_ngram.split(separator).count : ngram_model
-    next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
-
-    if next_ngram_rawcount == 0
-      return good_turing_bins[local_ngram_model][1].to_f/good_turing_bins[local_ngram_model][0]
-    else
-      revised_counts = get_revised_counts next_ngram: next_ngram, ngram_model: local_ngram_model
-      return revised_counts.to_f/good_turing_bins[local_ngram_model][0]
-    end
-  end
-  
 
   ## Calculates Maximum Likelihood Estimate for n-grams
   ## This method guesses the ngram model if not explicitly provided. It works in two modes:
   ## When mode is set to :single (default) - the phrase is assumed to be an n-gram already (n is inferred from separator)
   ## When mode is set to :sentence - the phrase is split into n-grams and their MLEs are multiplied.
+  ## Todo: Consider removing mode parameter - it might interfere with external calls
   def calculate_mle_probabilitity phrase: nil, ngram_model: 0, separator: " ", mode: :single
     raise ('MLE: ngram_model must be set explicitly in sentence mode') if (ngram_model==0 and mode == :sentence)
 
@@ -127,6 +123,54 @@ class Ngrams
     end
   end
   
+  ## Calculates Good-Turing probabilities for n-grams
+  def calculate_gt_probability next_ngram: nil, ngram_model: 0, ngram_counts: @ngram_counts, good_turing_bins: @good_turing_bins, separator: " "
+    local_ngram_model = ngram_model==0 ? next_ngram.split(separator).count : ngram_model
+    next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
+
+    if next_ngram_rawcount == 0
+      return good_turing_bins[local_ngram_model][1].to_f/good_turing_bins[local_ngram_model][0]
+    else
+      revised_counts = get_revised_counts next_ngram: next_ngram, ngram_model: local_ngram_model
+      return revised_counts.to_f/good_turing_bins[local_ngram_model][0]
+    end
+  end
+
+  def calculate_conditional_probability posterior: nil, prior: nil, ngram_model: 0, ngram_counts: @ngram_counts, good_turing_bins: @good_turing_bins, discounted: false, separator: " "
+    local_ngram_model = ngram_model==0 ? prior.split(separator).count + 1 : ngram_model # plus one because of the posterior
+    raise "N-gram #{prior}: conditional probabilities for unigrams don't make sense" if local_ngram_model==1
+    prior_counts = ngram_counts[local_ngram_model-1][prior].to_i
+    raise "#{prefix}: Unable to calculate conditional probability for prior counts = 0. Perhaps you meant to use Katz-backoff?" if prior_counts==0
+
+    if discounted
+      ngram_discounted_counts = get_revised_counts(next_ngram: prior+separator+posterior, ngram_model: local_ngram_model)
+      return ngram_discounted_counts/prior_counts
+    else
+      ngram_raw_counts = ngram_counts[local_ngram_model][prior+separator+posterior].to_f
+      return ngram_raw_counts/prior_counts
+    end
+  end
+
+  def calculate_katz_probability next_ngram: nil, ngram_model:0, ngram_counts: @ngram_counts, good_turing_bins: @good_turing_bins, separator: " "
+    local_ngram_model = ngram_model==0 ? next_ngram.split(separator).count : ngram_model
+    next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
+
+    return calculate_gt_probability(next_ngram: next_ngram, ngram_model: 1) if local_ngram_model==1
+
+    if next_ngram_rawcount>0
+      prior = next_ngram.split(separator)[0..-2].join(separator)
+      posterior = next_ngram.split(separator)[-1]
+      return calculate_conditional_probability(posterior: posterior, prior: prior, ngram_model: local_ngram_model, discounted: true, separator: separator)
+    else
+      backoff_ngram=next_ngram.split(separator)[1..-1].join(separator)
+      prior = next_ngram.split(separator)[1..-2].join(separator)
+      posterior = next_ngram.split(separator)[-1]
+      alpha=0.5 # Todo: Algorithm for calculating alpha
+      return alpha*calculate_katz_probability(next_ngram: backoff_ngram, ngram_model: local_ngram_model-1, separator: separator)
+    end
+
+  end
+
   ## Calculates raw counts (infers n-gram size)
   def get_raw_counts phrase, ngram_model=0, separator=" "
     ngram_model_inferred = ngram_model==0 ? phrase.split(separator).count : ngram_model
