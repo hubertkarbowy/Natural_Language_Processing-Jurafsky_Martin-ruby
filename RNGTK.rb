@@ -118,12 +118,12 @@ class Ngrams
   def calculate_mle_probability next_ngram: nil, ngram_model: 0, separator: " ", mode: :single
     raise ('MLE: ngram_model must be set explicitly in sentence mode') if (ngram_model==0 and mode == :sentence)
 
-    local_ngram_model=ngram_model==0 ? phrase.split(separator).count : ngram_model
+    local_ngram_model=ngram_model==0 ? next_ngram.split(separator).count : ngram_model
     if mode==:single
-      rc=get_raw_counts(phrase,local_ngram_model)
+      rc=get_raw_counts(next_ngram,local_ngram_model)
       return rc.to_f/@good_turing_bins[ngram_model][0] # this is where we keep V
     elsif mode==:sentence
-      return phrase.split(separator).each_cons(local_ngram_model).reduce(1) {|acc, word| (@ngram_counts[local_ngram_model][word.join(" ")].to_f/@good_turing_bins[local_ngram_model][0].to_f)*acc}
+      return next_ngram.split(separator).each_cons(local_ngram_model).reduce(1) {|acc, word| (@ngram_counts[local_ngram_model][word.join(" ")].to_f/@good_turing_bins[local_ngram_model][0].to_f)*acc}
     else
       raise ('MLE: unknown mode [available modes are :single and :sentence]') if (mode != :single and mode != :sentence)
     end
