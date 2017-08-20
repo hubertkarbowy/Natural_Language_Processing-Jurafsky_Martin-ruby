@@ -3,17 +3,20 @@
 ## RNGTK - Ruby Ngram Toolkit
 ## Author: Hubert Karbowy (hk atsign hubertkarbowy.pl)
 ## See my blog on http://www.hubertkarbowy.pl
-## Version: 0.93a
+## Version: 0.96
 ## Requires Ruby 2.4.0 - might work with 2.3 and 2.2, won't work with lower versions
 ##
 ## For a demonstration run scratchpad.rb
-## Please don't take Good-Turing discounted counts and discounted probabilities on faith. It is quite likely that is version still contains bugs.
+## Please don't take Good-Turing discounted counts, discounted probabilities and Katz-backoff on faith. It is quite likely that is version still contains bugs.
+## Comments and suggestions are more than welcome.
 ##
 ## CHANGELOG:
 ## 0.91 - fixed MLE probabilites
 ## 0.92 - fixed probabilities with Good-Turing discount
 ## 0.93a - started implementing Katz backoff (incomplete)
 ## 0.94 - Katz backoff complete + fixes in calculating probabilities
+## 0.95 - fixed bad parameter names in calculate_mle_probability, added some documentation
+## 0.96 - fixed errorneous zero counts in calculate_revised_probabilities: added .to_f, implemented Knesser-Ney smoothing
 
 # class to color output in verbose mode
 class String
@@ -33,9 +36,14 @@ class Ngrams
   @good_turing_bins
   @verbose=false
 
-  # corpus - filename, max_ngram model - self-explanatory, k - for GT smoothing
-  # strip_punctuation - removes non-alphabetical chars
-  # ignorecase - downcases everything
+  # corpus            filename 
+  # max_ngram model   will generate ngrams up to the value passed here
+  # k                 GT smoothing will be applied to ngrams with counts >=1 and <=k. If nil is passed, then it will apply regardless of raw counts.
+  # normalize         :by_line - will treat each line as a sentence;   :by_token - will delimit sentences by tokens passed in :eostokens;     :force - will strip all non-alphabetical characters and end-of-line characters
+  # strip_punctuation removes non-alphabetical chars
+  # ignorecase        downcases everything
+  # eostokens         regex containing sentence separators
+  # verbose           will print messages to console if set to true. This parameter can be toggled with instance methods be_quiet and be_verbose
   def initialize(corpus: nil, max_ngram_model: 3, k: 5, normalize: :by_line, strip_punctuation: true, ignorecase: true, eostokens: /[?.!]/, verbose: true)
     start_time=Time.now
 
@@ -72,6 +80,7 @@ class Ngrams
     gt_bins = []
     gt_bins[0] = [@ngram_counts[1].values.sum]
     for i in 1..max_ngram_model # bins for unigrams, bigrams etc.
+      k = @ngram_counts[i].values.max if k==nil
       gt_bins[i] = []
       gt_bins[i][0]=@ngram_counts[i].values.sum # we will keep the number of ngrams in the zeroeth index and denote is as N0.
       (1..k+1).each {|j| gt_bins[i][j] = @ngram_counts[i].select {|_, counts| counts==j}.values.size}
@@ -93,12 +102,20 @@ class Ngrams
     puts "RNGTK ready. Model loaded model in #{stop_time-start_time} s." if verbose
   end
   
-  ## Calculates back-off counts with Good-Turing discount
+  ## Calculates raw counts (infers n-gram size) TODO: change to named parameters
+  def get_raw_counts phrase, ngram_model=0, separator=" "
+    ngram_model_inferred = ngram_model==0 ? phrase.split(separator).count : ngram_model
+    return @ngram_counts[ngram_model_inferred][phrase]
+  end
+  
+  ## Calculates revised counts using Good-Turing discounting
   def get_revised_counts next_ngram: nil, ngram_model: 0, ngram_counts: @ngram_counts, good_turing_bins: @good_turing_bins, separator: " "
     local_ngram_model = ngram_model==0 ? next_ngram.split(separator).count : ngram_model
     next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
     if next_ngram_rawcount == 0
       raise "Revised counts for zero raw counts don't make sense #{next_ngram}"
+    elsif @k.nil?
+      return (next_ngram_rawcount+1)*(good_turing_bins[local_ngram_model][next_ngram_rawcount+1].to_f/good_turing_bins[local_ngram_model][next_ngram_rawcount])
     elsif next_ngram_rawcount <= @k
       ordinary_gt = (next_ngram_rawcount+1)*(good_turing_bins[local_ngram_model][next_ngram_rawcount+1].to_f/good_turing_bins[local_ngram_model][next_ngram_rawcount])
       mle_provision = (next_ngram_rawcount*(@k+1)*good_turing_bins[local_ngram_model][@k+1].to_f)/good_turing_bins[local_ngram_model][1]
@@ -129,7 +146,7 @@ class Ngrams
     end
   end
   
-  ## Calculates Good-Turing probabilities for n-grams
+  ## Calculates Good-Turing probabilities for n-grams. Very basic version (Regression for Simple Good-Turing is not implemented).
   def calculate_gt_probability next_ngram: nil, ngram_model: 0, ngram_counts: @ngram_counts, good_turing_bins: @good_turing_bins, separator: " "
     local_ngram_model = ngram_model==0 ? next_ngram.split(separator).count : ngram_model
     next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
@@ -141,6 +158,28 @@ class Ngrams
       return revised_counts.to_f/good_turing_bins[local_ngram_model][0]
     end
   end
+  
+  ## Calculates Knesser-Ney interpolated discounted probabilities (discount is fixed for all ngram models, TODO: implement the modified version)
+  def calculate_kn_probability next_ngram: nil, ngram_model: 0, discount: 0.25, ngram_counts: @ngram_counts, good_turing_bins: @good_turing_bins, separator: " "
+    local_ngram_model = ngram_model==0 ? next_ngram.split(separator).count : ngram_model
+    next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
+    
+    return calculate_mle_probability(next_ngram: next_ngram, separator: separator) if local_ngram_model==1 # Recursion stops at the unigram model
+
+    prefix_regex = /^#{next_ngram.split(separator)[0..-2].join(separator)}\b/
+    prefix = next_ngram.split(separator)[0..-2].join(separator)
+    suffix = next_ngram.split(separator).last
+    similar_ngrams = ngram_counts[local_ngram_model].select{|ngram, _| puts "Found #{prefix.green} #{ngram.split[1..-1].join(" ").brown}" if (@verbose and ngram.match(prefix_regex)); ngram.match(prefix_regex)}.count # Number of words which complete the current n-1 gram, e.g. for the n-gram "your house looks nice" we count "yhl ugly", "yhl fine" etc. Notice - we don't counts the number of occurences for "yhl ugly" etc but only the number of lower-order ngrams which complete the current ngram.
+    puts "#{'Total of '.red + similar_ngrams.to_s.red + ' found.'.red} Now calculating counts." if @verbose
+    similar_ngrams_total_counts = ngram_counts[local_ngram_model].reduce(0){|acc, (ngram, counts)| puts "Found #{prefix.green} #{ngram.split[1..-1].join(" ").brown} with raw count of #{counts}" if (@verbose and ngram.match?(prefix_regex)); if ngram.match(prefix_regex) then acc += counts; else acc; end} # It's here that we actually sum up the counts
+    puts "#{'Total count is '.red + similar_ngrams_total_counts.to_s.red}"
+    ngrams_with_fixed_suffix = ngram_counts[local_ngram_model].reduce(0){|acc, (ngram, counts)| puts "Found #{ngram.brown} / #{suffix.green} with raw count of #{counts}" if (@verbose and ngram.match?(/\b#{suffix}\b/)); acc += counts if ngram.match?(/\b#{suffix}\b/); acc}
+
+    first_term = [get_raw_counts(next_ngram).to_f - discount, 0].max / similar_ngrams_total_counts.to_f
+    second_term = discount * (similar_ngrams.to_f/ngrams_with_fixed_suffix.to_f)
+    
+    return first_term + (second_term * calculate_kn_probability(next_ngram: next_ngram.split(separator)[1..-1].join(separator)))
+  end
 
   def calculate_conditional_probability posterior: nil, prior: nil, ngram_model: 0, ngram_counts: @ngram_counts, good_turing_bins: @good_turing_bins, discounted: false, separator: " "
     local_ngram_model = ngram_model==0 ? prior.split(separator).count + 1 : ngram_model # plus one because of the posterior
@@ -149,12 +188,24 @@ class Ngrams
     raise "#{prior}: Unable to calculate conditional probability for prior counts = 0. Perhaps you meant to use Katz-backoff?" if prior_counts==0
     ngram_raw_counts = ngram_counts[local_ngram_model][prior+separator+posterior].to_f
     
-    if discounted and ngram_raw_counts<=@k
+    if discounted
       ngram_discounted_counts = get_revised_counts(next_ngram: prior+separator+posterior, ngram_model: local_ngram_model)
-      return ngram_discounted_counts/prior_counts
+      return ngram_discounted_counts.to_f/prior_counts
     else
       return ngram_raw_counts/prior_counts
     end
+  end
+
+  def ccp next_ngram: nil, separator: " ", discounted: false # Convenience method for calculate_conditional probability - splits next_ngram into posterior and prior automatically
+    next_ngram_as_arr = next_ngram.split(separator)
+    prior = next_ngram_as_arr[0..-2].join(separator)
+    posterior = next_ngram_as_arr.last
+    return calculate_conditional_probability posterior: posterior, prior: prior, discounted: discounted
+  end
+  
+  def p_cond phrase: nil, separator: " " # Convenience method for printing out strings like "P(word | context words)" if the input phrase is "context words word"
+    arr=phrase.split(separator)
+    return ("P(#{arr.last} | #{arr[0..-2].join(separator)})")
   end
   
   def calculate_alpha next_ngram: nil, ngram_model:0, ngram_counts: @ngram_counts, good_turing_bins: @good_turing_bins, separator: " "
@@ -221,18 +272,6 @@ class Ngrams
       puts "          BACKING OFF TO: #{backoff_ngram}\n\n" if @verbose 
       return alpha*calculate_katz_probability(next_ngram: backoff_ngram, ngram_model: local_ngram_model-1, separator: separator)
     end
-
-  end
-
-  ## Calculates raw counts (infers n-gram size)
-  def get_raw_counts phrase, ngram_model=0, separator=" "
-    ngram_model_inferred = ngram_model==0 ? phrase.split(separator).count : ngram_model
-    return @ngram_counts[ngram_model_inferred][phrase]
-  end
-  
-  def p_cond phrase: nil
-    arr=phrase.split
-    return ("P(#{arr.last} | #{arr[0..-2].join(" ")})")
   end
 
   def get_gt_bins; return @good_turing_bins; end
