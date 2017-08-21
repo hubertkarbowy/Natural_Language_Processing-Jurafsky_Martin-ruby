@@ -4,7 +4,7 @@
 ## Author: Hubert Karbowy (hk atsign hubertkarbowy.pl)
 ## See my blog on http://www.hubertkarbowy.pl
 ## Version: 0.96
-## Requires Ruby 2.4.0 - might work with 2.3 and 2.2, won't work with lower versions
+## Requires Ruby 2.4.0 - won't work with lower versions
 ##
 ## For a demonstration run scratchpad.rb
 ## Please don't take Good-Turing discounted counts, discounted probabilities and Katz-backoff on faith. It is quite likely that is version still contains bugs.
@@ -152,7 +152,7 @@ class Ngrams
     next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
 
     if next_ngram_rawcount == 0
-      return good_turing_bins[local_ngram_model][1].to_f/good_turing_bins[local_ngram_model][0]
+      return good_turing_bins[local_ngram_model][1].to_f/good_turing_bins[local_ngram_model][0] # P*(unseen)
     else
       revised_counts = get_revised_counts next_ngram: next_ngram, ngram_model: local_ngram_model
       return revised_counts.to_f/good_turing_bins[local_ngram_model][0]
@@ -162,7 +162,6 @@ class Ngrams
   ## Calculates Knesser-Ney interpolated discounted probabilities (discount is fixed for all ngram models, TODO: implement the modified version)
   def calculate_kn_probability next_ngram: nil, ngram_model: 0, discount: 0.25, ngram_counts: @ngram_counts, good_turing_bins: @good_turing_bins, separator: " "
     local_ngram_model = ngram_model==0 ? next_ngram.split(separator).count : ngram_model
-    next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
     
     return calculate_mle_probability(next_ngram: next_ngram, separator: separator) if local_ngram_model==1 # Recursion stops at the unigram model
 
@@ -173,7 +172,7 @@ class Ngrams
     puts "#{'Total of '.red + similar_ngrams.to_s.red + ' found.'.red} Now calculating counts." if @verbose
     similar_ngrams_total_counts = ngram_counts[local_ngram_model].reduce(0){|acc, (ngram, counts)| puts "Found #{prefix.green} #{ngram.split[1..-1].join(" ").brown} with raw count of #{counts}" if (@verbose and ngram.match?(prefix_regex)); if ngram.match(prefix_regex) then acc += counts; else acc; end} # It's here that we actually sum up the counts
     puts "#{'Total count is '.red + similar_ngrams_total_counts.to_s.red}"
-    ngrams_with_fixed_suffix = ngram_counts[local_ngram_model].reduce(0){|acc, (ngram, counts)| puts "Found #{ngram.brown} / #{suffix.green} with raw count of #{counts}" if (@verbose and ngram.match?(/\b#{suffix}\b/)); acc += counts if ngram.match?(/\b#{suffix}\b/); acc}
+    ngrams_with_fixed_suffix = ngram_counts[local_ngram_model].reduce(0){|acc, (ngram, counts)| puts "Found #{ngram.brown} / #{suffix.green} with raw count of #{counts}" if (@verbose and ngram.match?(/^#{suffix}\b/)); acc += counts if ngram.match?(/^#{suffix}\b/); acc}
 
     first_term = [get_raw_counts(next_ngram).to_f - discount, 0].max / similar_ngrams_total_counts.to_f
     second_term = discount * (similar_ngrams.to_f/ngrams_with_fixed_suffix.to_f)
@@ -238,15 +237,11 @@ class Ngrams
       puts "       Now moving on to lower-order n-grams #{backoff_ngram.split(separator)[0..-2].join(" ").brown+' ●'.brown}" if @verbose
       all_similar = ngram_counts[local_ngram_model-1].select {|k,v| k.match(/^#{backoff_ngram.split(separator)[0..-2].join(separator)}\b/)} # .map{|k| k.split.last} # e.g. IN HER FORTIES, IN HER HOUSE, IN HER JEANS
       all_similar.delete_if {|k,v| !ngram_counts[local_ngram_model][prefix+" "+k.split(separator).last].nil? }
-      sum_of_backoff_counts = 0
       similar_ngram_gt_probabilities = 0
       # revised_count_of_backoff_ngram = get_revised_counts(next_ngram: backoff_ngram, ngram_model: local_ngram_model-1, separator: separator)
       all_similar.each do |alt_phrase, rawcount| 
         similar_ngram = "#{alt_phrase}" # IN HER FORTIES, IN HER JEANS, IN HER HOUSE...
-        similar_ngram_gt_probabilities += calculate_conditional_probability(posterior: alt_phrase.split(separator).last, prior: alt_phrase.split(separator)[0..-2].join(separator), discounted: true) 
-        #similar_ngram_rawcount += rawcount
-        similar_ngram_revised_count = get_revised_counts(next_ngram: similar_ngram)
-        # sum_of_backoff_counts += similar_ngram_revised_count
+        similar_ngram_gt_probabilities += calculate_conditional_probability(posterior: alt_phrase.split(separator).last, prior: alt_phrase.split(separator)[0..-2].join(separator), discounted: true)
         puts "       Considering #{p_cond(phrase: alt_phrase).brown}, P* = #{calculate_conditional_probability(posterior: alt_phrase.split(separator).last, prior: alt_phrase.split(separator)[0..-2].join(separator), discounted: true)}" if @verbose
       end
       puts "         * Sum of revised probabilities #{p_cond(phrase: backoff_ngram.split(separator)[0..-2].join(" ")+' ●').brown} is #{similar_ngram_gt_probabilities}" if @verbose

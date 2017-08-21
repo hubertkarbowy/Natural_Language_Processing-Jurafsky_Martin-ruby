@@ -15,7 +15,7 @@
 require_relative './RNGTK.rb'
 require 'pp'
 
-simplemodel = Ngrams.new(corpus: 'churchill.txt', max_ngram_model: 3, k: 4, normalize: :by_token)
+simplemodel = Ngrams.new(corpus: 'churchill.txt', max_ngram_model: 3, k: 2, normalize: :by_token)
 #simplemodel = Ngrams.new(corpus: '/wymiana/Projekty/NLP/persuasion.txt', normalize: :by_token, max_ngram_model: 4, k: 4)
 ngramcounts = simplemodel.get_ngram_counts
 
@@ -30,24 +30,26 @@ for n in 1..2 do
     puts " Probability (seen):  #{totalprob}\n+Probability (unseen): #{prob_unk}\n=Total probability = #{totalprob+prob_unk}"
 end
 
+puts "c (german) = #{simplemodel.get_raw_counts('german')}"
+
 puts "\n============ MLE conditional probabilities with raw counts ================"
 prior = 'german'
 posterior = ['forces', 'failure', 'exactions', 'aggression', 'power', 'broadcast', 'troops', 'hands', 'and', 'war', 'air']
-posterior.each {|x| puts "P(#{x} | #{prior}) = #{simplemodel.calculate_conditional_probability(posterior: x, prior: prior, ngram_model: 2)}, raw count = #{ngramcounts[2][prior+' '+x]}"}
+posterior.each {|x| puts "P(#{x} | #{prior}) = #{simplemodel.calculate_conditional_probability(posterior: x, prior: prior, ngram_model: 2)}, c(#{prior + ' ' + x}) = #{ngramcounts[2][prior+' '+x]}"}
 puts "Sum of conditional probabilities = #{posterior.reduce(0) {|acc, x| acc+=simplemodel.calculate_conditional_probability(posterior: x, prior: prior, ngram_model: 2)}}"
 
 puts "\n============ Revised conditional probabilities with Good-Turing discounted counts ================"
 prior = 'german'
 posterior = ['forces', 'failure', 'exactions', 'aggression', 'power', 'broadcast', 'troops', 'hands', 'and', 'war', 'air']
-posterior.each {|x| puts "P(#{x} | #{prior}) = #{simplemodel.calculate_conditional_probability(posterior: x, prior: prior, ngram_model: 2, discounted: true)}, discounted count = #{simplemodel.get_revised_counts(next_ngram: prior+' '+x)}"}
-puts "Sum of conditional probabilities = #{posterior.reduce(0) {|acc, x| acc+=simplemodel.calculate_conditional_probability(posterior: x, prior: prior, ngram_model: 2)}}"
+posterior.each {|x| puts "P(#{x} | #{prior}) = #{simplemodel.calculate_conditional_probability(posterior: x, prior: prior, ngram_model: 2, discounted: true)}, c*(#{prior+' '+x}) = #{simplemodel.get_revised_counts(next_ngram: prior+' '+x)}"}
+puts "Sum of revised conditional probabilities = #{posterior.reduce(0) {|acc, x| acc+=simplemodel.calculate_conditional_probability(posterior: x, prior: prior, ngram_model: 2, discounted: true)}}"
 end
 
 puts "\n============ Katz-backoff demonstration ================"
 
 n=2
 phrase = 'fighting with enemy' # Hmm.. this is strange - why is the probability higher for "fighting with depression" if depression doesn't appear in the corpus?
-totalprob=phrase.split.each_cons(n).reduce(1) {|acc, bigram| acc * (simplemodel.calculate_katz_probability(next_ngram: bigram.join(" "), ngram_model: n))}
+totalprob=phrase.split.each_cons(n).reduce(1) {|acc, bigram| puts "Processing #{n}-gram #{bigram.join(" ").red}"; acc * (simplemodel.calculate_katz_probability(next_ngram: bigram.join(" "), ngram_model: n))}
 puts "P(#{phrase}) = #{totalprob}"
 
 n=2
