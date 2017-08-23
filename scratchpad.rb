@@ -59,3 +59,14 @@ puts "\n============ Knesser-Ney demonstration with #{n}-grams and fixed discoun
 phrase = 'great enemy'
 totalprob=phrase.split.each_cons(n).reduce(1) {|acc, ngram| acc * (simplemodel.calculate_kn_probability(next_ngram: ngram.join(" "), ngram_model: n, discount: discount))}
 puts "P(#{phrase}) = #{totalprob}"
+
+
+n=1
+puts "\n============ Distributed leftover GT probabilities with #{n}-grams  ================"
+simplemodel.set_oov(testset: "ich habe eine grube babe")
+phrase = 'great grube'
+totalprob=phrase.split.each_cons(n).reduce(1) {|acc, ngram| acc * (simplemodel.calculate_gt_probability(next_ngram: ngram.join(" "), ngram_model: n))}
+puts "P(#{phrase}) = #{totalprob}"
+phrase = 'great britain'
+totalprob=phrase.split.each_cons(n).reduce(1) {|acc, ngram| acc * (simplemodel.calculate_gt_probability(next_ngram: ngram.join(" "), ngram_model: n))}
+puts "P(#{phrase}) = #{totalprob}"

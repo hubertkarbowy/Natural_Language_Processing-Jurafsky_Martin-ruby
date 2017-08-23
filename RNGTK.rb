@@ -17,6 +17,12 @@
 ## 0.94 - Katz backoff complete + fixes in calculating probabilities
 ## 0.95 - fixed bad parameter names in calculate_mle_probability, added some documentation
 ## 0.96 - fixed errorneous zero counts in calculate_revised_probabilities: added .to_f, implemented Knesser-Ney smoothing
+## 0.97 - started implementing distribution of leftover GT probability among OOV words (first attempt: just unigrams)
+##
+##
+## TODO URGENTLY: Even distribution of leftover GT probabilities for all ngram models
+## TODO: Change verbose to @verbose in all subroutines
+## TODO: Add :sentence mode to calculate_gt_probability a la MLE for convenience
 
 # class to color output in verbose mode
 class String
@@ -35,6 +41,8 @@ class Ngrams
   @ngram_counts
   @good_turing_bins
   @verbose=false
+  @leftover_probability=0 # how much probability mass remains after discounting all unigram counts
+  @oov_counts # this hash contains all out-of-vocabulary items with their counts. Set it using @set_oov before performing Good-Turing smoothing
 
   # corpus            filename 
   # max_ngram model   will generate ngrams up to the value passed here
@@ -102,6 +110,39 @@ class Ngrams
     puts "RNGTK ready. Model loaded model in #{stop_time-start_time} s." if verbose
   end
   
+  ## Creates a hash with out-of-vocabulary unigrams and their counts so that the leftover probability can be distributed evenly between all oov items in calculate_gt_probability
+  def set_oov testset: nil, normalize: :by_line, strip_punctuation: true, ignorecase: true, eostokens: /[?.!]/, separator: " "
+    raise "Ngram counts not set" if @ngram_counts.size==0
+    
+    case normalize
+      when :force
+        normalized_oov = testset.gsub(/[^a-z|A-Z|\s]/, "").gsub("\n", " ").delete("\r").gsub(/ +/, " ").downcase
+      when :by_token
+        normalized_oov = testset.split(eostokens).join("\n").gsub(/ +/, " ")
+      when :by_line
+        normalized_oov = testset
+      else
+        normalized_oov = testset
+    end
+    
+    normalized_oov.gsub!(/[^a-z|A-Z|\s]/, "") if strip_punctuation
+    normalized_oov.gsub!(/ +/, " ") if strip_punctuation
+    normalized_oov.downcase! if ignorecase
+    
+    @oov_counts = Hash.new
+    normalized_oov.each_line do |sentence|
+        temp_counts = sentence.split(" ").each.reduce(Hash.new(0)) {|acc, word| 
+          if !@ngram_counts[1].has_key?(word) 
+            acc[word].nil? ? acc[word]=1 : acc[word] += 1
+          end
+          acc }
+        temp_counts.each {|token, sentencecounts| @oov_counts[token].nil? ? @oov_counts[token]=sentencecounts : @oov_counts[token]+=sentencecounts}
+    end
+    
+    @leftover_probability = 1 - @ngram_counts[1].reduce(0){|acc, (token, counts)| acc += calculate_gt_probability(next_ngram: token, ngram_model: 1, separator: separator)}  
+    puts "Total number of unknown tokens (oov) in testset = #{@oov_counts.size} and the unigram leftover probability is #{@leftover_probability}" if @verbose
+end
+  
   ## Calculates raw counts (infers n-gram size) TODO: change to named parameters
   def get_raw_counts phrase, ngram_model=0, separator=" "
     ngram_model_inferred = ngram_model==0 ? phrase.split(separator).count : ngram_model
@@ -113,7 +154,10 @@ class Ngrams
     local_ngram_model = ngram_model==0 ? next_ngram.split(separator).count : ngram_model
     next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
     if next_ngram_rawcount == 0
-      raise "Revised counts for zero raw counts don't make sense #{next_ngram}"
+      raise "Revised counts for zero raw counts (#{next_ngram.green}) only make sense for unigrams with precomputed OOV set." unless !@oov_counts.nil? and local_ngram_model==1
+      raise "Token #{next_ngram.red} not found in OOV set. Are you sure you used set_oov?" if !@oov_counts.has_key?(next_ngram)
+      leftover_probability_per_oov_token = @leftover_probability/@oov_counts.values.sum
+      return @oov_counts[next_ngram].to_f*leftover_probability_per_oov_token 
     elsif @k.nil?
       return (next_ngram_rawcount+1)*(good_turing_bins[local_ngram_model][next_ngram_rawcount+1].to_f/good_turing_bins[local_ngram_model][next_ngram_rawcount])
     elsif next_ngram_rawcount <= @k
@@ -151,8 +195,9 @@ class Ngrams
     local_ngram_model = ngram_model==0 ? next_ngram.split(separator).count : ngram_model
     next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
 
-    if next_ngram_rawcount == 0
-      return good_turing_bins[local_ngram_model][1].to_f/good_turing_bins[local_ngram_model][0] # P*(unseen)
+    if next_ngram_rawcount == 0 # Distributing P*(unseen)
+      return good_turing_bins[local_ngram_model][1].to_f/good_turing_bins[local_ngram_model][0] if (local_ngram_model>1 or @oov_counts.nil?) ## TODO: Fix this ugly hack
+      return get_revised_counts(next_ngram: next_ngram, ngram_model: 1).to_f/good_turing_bins[1][0] ## TODO: Fix this ugly hack
     else
       revised_counts = get_revised_counts next_ngram: next_ngram, ngram_model: local_ngram_model
       return revised_counts.to_f/good_turing_bins[local_ngram_model][0]
@@ -271,6 +316,7 @@ class Ngrams
 
   def get_gt_bins; return @good_turing_bins; end
   def get_ngram_counts; return @ngram_counts; end
+  def get_oov_counts; return @oov_counts; end
   def be_quiet; @verbose=false; end
   def be_verbose; @verbose=true; end
 end
