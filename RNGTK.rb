@@ -18,9 +18,9 @@
 ## 0.95 - fixed bad parameter names in calculate_mle_probability, added some documentation
 ## 0.96 - fixed errorneous zero counts in calculate_revised_probabilities: added .to_f, implemented Knesser-Ney smoothing
 ## 0.97 - started implementing distribution of leftover GT probability among OOV words (first attempt: just unigrams)
+## 0.98 - leftover GT probability distributed evenly among OOV n-grams in all n-gram models
 ##
 ##
-## TODO URGENTLY: Even distribution of leftover GT probabilities for all ngram models
 ## TODO: Change verbose to @verbose in all subroutines
 ## TODO: Add :sentence mode to calculate_gt_probability a la MLE for convenience
 
@@ -41,7 +41,7 @@ class Ngrams
   @ngram_counts
   @good_turing_bins
   @verbose=false
-  @leftover_probability=0 # how much probability mass remains after discounting all unigram counts
+  @leftover_probability=Hash.new # how much probability mass remains after discounting all unigram counts
   @oov_counts # this hash contains all out-of-vocabulary items with their counts. Set it using @set_oov before performing Good-Turing smoothing
 
   # corpus            filename 
@@ -111,7 +111,7 @@ class Ngrams
   end
   
   ## Creates a hash with out-of-vocabulary unigrams and their counts so that the leftover probability can be distributed evenly between all oov items in calculate_gt_probability
-  def set_oov testset: nil, normalize: :by_line, strip_punctuation: true, ignorecase: true, eostokens: /[?.!]/, separator: " "
+  def set_oov testset: nil, max_ngram_model: 3, normalize: :by_line, strip_punctuation: true, ignorecase: true, eostokens: /[?.!]/, separator: " "
     raise "Ngram counts not set" if @ngram_counts.size==0
     
     case normalize
@@ -130,17 +130,35 @@ class Ngrams
     normalized_oov.downcase! if ignorecase
     
     @oov_counts = Hash.new
-    normalized_oov.each_line do |sentence|
-        temp_counts = sentence.split(" ").each.reduce(Hash.new(0)) {|acc, word| 
-          if !@ngram_counts[1].has_key?(word) 
-            acc[word].nil? ? acc[word]=1 : acc[word] += 1
-          end
-          acc }
-        temp_counts.each {|token, sentencecounts| @oov_counts[token].nil? ? @oov_counts[token]=sentencecounts : @oov_counts[token]+=sentencecounts}
+
+    for i in 1..max_ngram_model # unigrams, bigrams etc.
+      @oov_counts[i] = Hash.new
+      normalized_oov.each_line do |sentence|
+          temp_counts = sentence.split(" ").each_cons(i).reduce(Hash.new(0)) {|acc, word| acc[word].nil? ? acc[word]=1 : acc[word] += 1; acc }.map{|k,v| [k.join(" "), v]}.to_h
+          temp_counts.each {|token, sentencecounts|
+            if !@ngram_counts[i].has_key?(token)
+              @oov_counts[i][token].nil? ? @oov_counts[i][token]=sentencecounts : @oov_counts[i][token]+=sentencecounts
+            end
+          }
+        end
+      puts "For #{i}-grams number of OOV in testset = #{@oov_counts[i].size}" if @verbose
     end
-    
-    @leftover_probability = 1 - @ngram_counts[1].reduce(0){|acc, (token, counts)| acc += calculate_gt_probability(next_ngram: token, ngram_model: 1, separator: separator)}  
-    puts "Total number of unknown tokens (oov) in testset = #{@oov_counts.size} and the unigram leftover probability is #{@leftover_probability}" if @verbose
+
+
+#    normalized_oov.each_line do |sentence|
+ #       temp_counts = sentence.split(" ").each.reduce(Hash.new(0)) {|acc, word|
+#          if !@ngram_counts[1].has_key?(word)
+#            acc[word].nil? ? acc[word]=1 : acc[word] += 1
+#          end
+#          acc }
+#        temp_counts.each {|token, sentencecounts| @oov_counts[token].nil? ? @oov_counts[token]=sentencecounts : @oov_counts[token]+=sentencecounts}
+#    end
+    @leftover_probability=Hash.new
+    for i in 1..max_ngram_model do
+      @leftover_probability[i] = 1 - @ngram_counts[i].reduce(0){|acc, (token, counts)| acc += calculate_gt_probability(next_ngram: token, ngram_model: i, separator: separator)}
+      puts "Total number of unknown (oov) #{i}-grams in testset = #{@oov_counts[i].size} with leftover probability of #{@leftover_probability[i]}" if @verbose
+    end
+
 end
   
   ## Calculates raw counts (infers n-gram size) TODO: change to named parameters
@@ -196,8 +214,8 @@ end
     next_ngram_rawcount = ngram_counts[local_ngram_model][next_ngram].to_i
 
     if next_ngram_rawcount == 0 # Distributing P*(unseen)
-      return good_turing_bins[local_ngram_model][1].to_f/good_turing_bins[local_ngram_model][0] if (local_ngram_model>1 or @oov_counts.nil?) ## TODO: Fix this ugly hack
-      return get_revised_counts(next_ngram: next_ngram, ngram_model: 1).to_f/good_turing_bins[1][0] ## TODO: Fix this ugly hack
+      return good_turing_bins[local_ngram_model][1].to_f/good_turing_bins[local_ngram_model][0] if @oov_counts.nil? # if no oov are set, we assign the whole probability mass to every missing token
+      return (@leftover_probability[local_ngram_model]/@oov_counts[local_ngram_model].values.sum)*@oov_counts[local_ngram_model][next_ngram] # otherwise we assign only part of it
     else
       revised_counts = get_revised_counts next_ngram: next_ngram, ngram_model: local_ngram_model
       return revised_counts.to_f/good_turing_bins[local_ngram_model][0]
@@ -275,7 +293,7 @@ end
 
       beta = 1 - beta_sum_of_probabilities
       puts "        * Sum of revised probabilities #{p_cond(phrase: prefix+' ●').green}: " if @verbose
-      puts "        * β(#{prefix.green}) = #{beta}"
+      puts "        * β(#{prefix.green}) = #{beta}" if @verbose
       
       return beta if local_ngram_model==2 # for bigrams
       
@@ -317,6 +335,8 @@ end
   def get_gt_bins; return @good_turing_bins; end
   def get_ngram_counts; return @ngram_counts; end
   def get_oov_counts; return @oov_counts; end
+  def clear_oov_counts; @leftover_probability=nil; @oov_counts=nil; end
+  def get_leftover_probability; return @leftover_probability; end
   def be_quiet; @verbose=false; end
   def be_verbose; @verbose=true; end
 end
