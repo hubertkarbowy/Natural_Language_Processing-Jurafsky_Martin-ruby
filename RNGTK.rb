@@ -159,7 +159,7 @@ class Ngrams
       puts "Total number of unknown (oov) #{i}-grams in testset = #{@oov_counts[i].size} with leftover probability of #{@leftover_probability[i]}" if @verbose
     end
 
-end
+  end
   
   ## Calculates raw counts (infers n-gram size) TODO: change to named parameters
   def get_raw_counts phrase, ngram_model=0, separator=" "
