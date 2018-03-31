@@ -3,7 +3,7 @@
 ## RNGTK - Ruby Ngram Toolkit
 ## Author: Hubert Karbowy (hk atsign hubertkarbowy.pl)
 ## See my blog on http://www.hubertkarbowy.pl
-## Version: 0.96
+## Version: 0.98
 ## Requires Ruby 2.4.0 - won't work with lower versions
 ##
 ## For a demonstration run scratchpad.rb
