@@ -22,28 +22,39 @@ class Corpuses          # the class name is a tribute to a certain dump-corpuses
   # verbose     = prints messages to stdout
   def initialize(source_dir: nil, corpus: nil, subset: nil, normalize: false, downcase: true, sents: false, verbose: true)
     start_time=Time.now
+    @tokens = Hash.new
+    @postags = Hash.new
+    @info = corpus
+    raise ("Unknown corpus") if corpus.nil?
 
-    ## TEMP
-        @tokens = Hash.new; @tokens[:brown] = Hash.new; @tokens[:brown]['ca01'] = Array.new
-        @postags = Hash.new; @postags[:brown] = Hash.new; @postags[:brown]['ca01'] = Array.new
+    for singleText in source_dir do
+      @tokens[File.basename(singleText)] = Hash.new; @tokens[File.basename(singleText)] = Array.new
+      @postags[File.basename(singleText)] = Hash.new; @postags[File.basename(singleText)] = Array.new
+    end
+
+    # ## TEMP
+    #     @tokens[:brown] = Hash.new; @tokens[:brown]['ca01'] = Array.new
+    #     @postags[:brown] = Hash.new; @postags[:brown]['ca01'] = Array.new
     ##
 
-    corpus_file = File.read(source_dir).encode('UTF-8', 'UTF-8', invalid: :replace, undef: :replace, replace: '@')
-    start_position=0
-    counter=0;
-    case corpus
-      when :brown
-        while next_match=corpus_file.match(/(?<token>.+?)\/(?<tag>.+?)(\s|$)/, start_position)
-         #while next_match=corpus_file.match(/(?<token>.)/, start_position)
-          start_position=$~.end(0)
-          normalizer = /['`,()]/ if normalize == :only_eos
-          normalizer = /['`,().]/ if normalize == :strip_punctuation
-          next if normalize and next_match[:tag].match(normalizer)
-          nm = next_match[:token].strip()
-          nm.downcase! if downcase
-          @tokens[:brown]['ca01'] << nm
-          @postags[:brown]['ca01'] << next_match[:tag]
-        end
+    for singleText in source_dir do
+      corpus_file = File.read(singleText).encode('UTF-8', 'UTF-8', invalid: :replace, undef: :replace, replace: '@')
+      start_position=0
+      counter=0;
+      case corpus
+        when :brown
+          while next_match=corpus_file.match(/(?<token>.+?)\/(?<tag>.+?)(\s|$)/, start_position)
+           #while next_match=corpus_file.match(/(?<token>.)/, start_position)
+            start_position=$~.end(0)
+            normalizer = /['`,()]/ if normalize == :only_eos
+            normalizer = /['`,().]/ if normalize == :strip_punctuation
+            next if normalize and next_match[:tag].match(normalizer)
+            nm = next_match[:token].strip()
+            nm.downcase! if downcase
+            @tokens[File.basename(singleText)] << nm
+            @postags[File.basename(singleText)] << next_match[:tag]
+          end
+      end
     end
   end
 
@@ -52,12 +63,14 @@ class Corpuses          # the class name is a tribute to a certain dump-corpuses
 end
 
   ########### MAIN
+  allfiles = Dir.glob('/wymiana/Projekty/NLP/dumped-corpuses/brown/*').select { |f| FileTest.file? f }
+  bc = Corpuses.new(source_dir: allfiles, corpus: :brown, normalize: :only_eos)
 
-  bc = Corpuses.new(source_dir: '/wymiana/Projekty/NLP/dumped-corpuses/brown/ca01', corpus: :brown, normalize: :only_eos)
-  tk= bc.getTokens[:brown]['ca01']
-  tt= bc.getTags[:brown]['ca01']
-
-
-  for i in 0..tk.length do
-    puts tk[i].to_s + " " + tt[i].to_s
+  for singleText in bc.getTokens.keys
+    puts "Printing " + singleText + "\n****************************************************"
+    tokens = bc.getTokens[singleText]
+    tags = bc.getTags[singleText]
+    for i in 0..tokens.length do
+      puts tokens[i].to_s + " " + tags[i].to_s
+    end
   end
